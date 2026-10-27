@@ -10,7 +10,12 @@ $hsVerified = (Test-Path -LiteralPath $hsZip) -and (Get-FileHash -LiteralPath $h
 foreach ($hsUrl in $hsUrls) {
     if ($hsVerified) { break }
     try {
-        Invoke-WebRequest -Uri $hsUrl -OutFile $hsZip
+        if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+            & curl.exe --fail --silent --show-error --location --retry 2 --max-time 60 $hsUrl --output $hsZip
+            if ($LASTEXITCODE -ne 0) { continue }
+        } else {
+            Invoke-WebRequest -Uri $hsUrl -OutFile $hsZip
+        }
         $hsVerified = (Get-FileHash -LiteralPath $hsZip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $hsExpected
     } catch { Write-Warning $_.Exception.Message }
 }
