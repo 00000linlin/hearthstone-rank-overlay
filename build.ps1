@@ -27,7 +27,7 @@ if ($Test) {
 Compress-Archive -LiteralPath "$hsDist\HearthstoneRank.exe","$hsDist\HearthstoneRank.exe.config","$hsDist\LICENSE.txt","$hsDist\HearthstoneRank-README.md" -DestinationPath "$hsDist\HearthstoneRank-1.0.0-portable.zip" -Force
 if ($Installer) {
     if (!$NsisPath) {
-        $hsNsisCandidates = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$hsBuild\nsis-3.12\makensis.exe")
+        $hsNsisCandidates = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe", "$hsBuild\nsis-3.12\makensis.exe")
         $NsisPath = $hsNsisCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     }
     if (!$NsisPath) { throw '请先运行 tools\Get-Nsis.ps1，或通过 -NsisPath 指定 makensis.exe。' }
