@@ -1,0 +1,9 @@
+dist/
+build/
+.qa/
+*.tmp.*
+*.tmp
+*.user
+settings.json
+*.log
+__pycache__/
