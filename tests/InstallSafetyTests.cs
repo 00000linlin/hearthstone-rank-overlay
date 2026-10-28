@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Linq;
+using Microsoft.Win32;
 using HearthstoneRank.Installation;
 
 static class InstallSafetyTests
@@ -20,8 +22,19 @@ static class InstallSafetyTests
         {
             string root = Path.GetFullPath(args[0]);
             Directory.CreateDirectory(root);
-            InstallSafety.CheckInstall(Path.Combine(root, "new-empty"));
-            Console.WriteLine("PASS: absent target with a safe parent is accepted");
+            bool registeredElsewhere = false;
+            using (var key = Registry.CurrentUser.OpenSubKey(InstallSafety.RegistryKey))
+            {
+                string existing = key == null ? null : key.GetValue("InstallLocation") as string;
+                if (!String.IsNullOrWhiteSpace(existing)) registeredElsewhere = InstallSafety.ManagedFiles.Any(file => File.Exists(Path.Combine(existing, file)));
+            }
+            if (registeredElsewhere)
+                Reject(() => InstallSafety.CheckInstall(Path.Combine(root, "new-empty")), "existing developer installation remains protected");
+            else
+            {
+                InstallSafety.CheckInstall(Path.Combine(root, "new-empty"));
+                Console.WriteLine("PASS: absent target with a safe parent is accepted");
+            }
             Reject(() => InstallSafety.CanonicalDirectory(Path.GetPathRoot(root)), "disk root is rejected");
             Reject(() => InstallSafety.CanonicalDirectory("\\\\server\\share\\folder"), "network destination is rejected");
             Reject(() => InstallSafety.CanonicalDirectory("C:relative"), "drive-relative destination is rejected");

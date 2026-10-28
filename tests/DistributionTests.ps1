@@ -48,6 +48,9 @@ function Run-Uninstall([string]$Target) {
     $hsProcess = Start-Process -FilePath (Join-Path $Target 'Uninstall.exe') -ArgumentList @('/S',('_?=' + $Target)) -PassThru -Wait -WindowStyle Hidden
     return $hsProcess.ExitCode
 }
+$hsMutex = [Threading.Mutex]::new($false, 'Local\HearthstoneRank.Installer')
+try { Confirm ((Run-Setup (Join-Path $hsCases 'concurrent')) -ne 0) 'concurrent installer operation is rejected' }
+finally { $hsMutex.Dispose() }
 $hsForeign = Join-Path $hsCases 'foreign'
 New-Item -ItemType Directory -Path $hsForeign | Out-Null
 $hsSentinel = Join-Path $hsCases 'unexpected-execution.txt'
@@ -66,6 +69,12 @@ New-Item -ItemType Directory -Path $hsLinkedTarget | Out-Null
 New-Item -ItemType Junction -Path $hsLinkedParent -Target $hsLinkedTarget | Out-Null
 try { Confirm ((Run-Setup (Join-Path $hsLinkedParent 'child')) -ne 0) 'directory junction ancestor is rejected' }
 finally { Remove-Item -LiteralPath $hsLinkedParent }
+$hsPartial = Join-Path $hsCases 'partial-install'
+New-Item -ItemType Directory -Path $hsPartial | Out-Null
+Set-Content -LiteralPath (Join-Path $hsPartial 'HearthstoneRank.install') -NoNewline -Value 'HearthstoneRank-managed-directory-v1' -Encoding ascii
+Set-Content -LiteralPath (Join-Path $hsPartial 'HearthstoneRank.exe') -Value 'Interrupted, incomplete payload'
+Confirm ((Run-Setup $hsPartial) -eq 0) 'owned interrupted installation can be retried without running its partial EXE'
+Confirm ((Run-Uninstall $hsPartial) -eq 0) 'recovered partial installation uninstalls normally'
 $hsInstall = Join-Path $hsCases 'installed'
 Confirm ((Run-Setup $hsInstall) -eq 0) 'clean per-user installation succeeds'
 Confirm ((Get-FileHash -LiteralPath (Join-Path $hsInstall 'HearthstoneRank.exe')).Hash -eq (Get-FileHash -LiteralPath (Join-Path $hsRoot 'dist\HearthstoneRank.exe')).Hash) 'installed payload matches the current build'

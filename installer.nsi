@@ -30,6 +30,19 @@ FunctionEnd
 !insertmacro GuardFunction ""
 !insertmacro GuardFunction "un."
 
+!macro AcquireInstallerMutex
+  System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\HearthstoneRank.Installer") p .r9 ?e'
+  Pop $0
+  StrCmp $9 "0" installer_busy
+  StrCmp $0 "183" installer_busy
+  Goto installer_lock_acquired
+  installer_busy:
+    MessageBox MB_OK|MB_ICONEXCLAMATION "另一个安装或卸载操作正在运行，请完成后再试。" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  installer_lock_acquired:
+!macroend
+
 !macro DeletePayload FILE
   IfFileExists "$INSTDIR\${FILE}" 0 +4
     ClearErrors
@@ -38,6 +51,7 @@ FunctionEnd
 !macroend
 
 Function .onInit
+  !insertmacro AcquireInstallerMutex
   SetShellVarContext current
   ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" "Release"
   ${If} $0 < 378389
@@ -51,6 +65,7 @@ Function .onInit
 FunctionEnd
 
 Function un.onInit
+  !insertmacro AcquireInstallerMutex
   SetShellVarContext current
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
@@ -84,17 +99,19 @@ Section "旅店排名"
   Sleep 500
   ClearErrors
   SetOutPath "$INSTDIR"
+  ; Claim the validated empty/owned directory before extracting any payload,
+  ; so an interrupted copy can be safely retried instead of looking foreign.
+  FileOpen $0 "$INSTDIR\HearthstoneRank.install" w
+  IfErrors install_failed
+  FileWrite $0 "HearthstoneRank-managed-directory-v1"
+  FileClose $0
+  IfErrors install_failed
   File "${PAYLOAD_DIR}\HearthstoneRank.exe"
   File "${PAYLOAD_DIR}\HearthstoneRank.exe.config"
   File "${PAYLOAD_DIR}\LICENSE.txt"
   File "${PAYLOAD_DIR}\HearthstoneRank-README.md"
   IfErrors install_failed
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  IfErrors install_failed
-  FileOpen $0 "$INSTDIR\HearthstoneRank.install" w
-  IfErrors install_failed
-  FileWrite $0 "HearthstoneRank-managed-directory-v1"
-  FileClose $0
   IfErrors install_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayName" "旅店排名"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayVersion" "${VERSION}"
