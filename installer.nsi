@@ -1,67 +1,158 @@
 ﻿Unicode true
 !include "LogicLib.nsh"
-Name "旅店排名 1.0.0"
-OutFile "dist\HearthstoneRank-1.0.0-Setup.exe"
+!ifndef VERSION
+  !error "Run build.ps1 -Installer to supply VERSION and a verified payload."
+!endif
+Name "旅店排名 ${VERSION}"
+OutFile "${OUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\HearthstoneRank"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 SetCompressorDictSize 1
-Icon "build\app.ico"
-UninstallIcon "build\app.ico"
+Icon "${PAYLOAD_DIR}\app.ico"
+UninstallIcon "${PAYLOAD_DIR}\app.ico"
 ShowInstDetails show
 ShowUninstDetails show
 Page directory
 Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
-DirText "安装旅店排名。不需要管理员权限；不会安装 Python、浏览器或额外运行时。"
+DirText "当前用户安装。请选择空目录或已安装旅店排名的目录；不支持链接或网络目录。"
+
+!macro GuardFunction PREFIX
+Function ${PREFIX}Guard
+  ; Only execute the helper extracted from this installer's own payload.
+  nsExec::ExecToStack /TIMEOUT=5000 '"$PLUGINSDIR\InstallerGuard.exe" $0'
+  Pop $1
+  Pop $2
+FunctionEnd
+!macroend
+!insertmacro GuardFunction ""
+!insertmacro GuardFunction "un."
+
+!macro DeletePayload FILE
+  IfFileExists "$INSTDIR\${FILE}" 0 +4
+    ClearErrors
+    Delete "$INSTDIR\${FILE}"
+    IfErrors uninstall_failed
+!macroend
 
 Function .onInit
   SetShellVarContext current
   ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" "Release"
   ${If} $0 < 378389
-    MessageBox MB_OK|MB_ICONSTOP "需要 .NET Framework 4.5 或更新版本。Windows 10 / 11 自带兼容版本。"
+    MessageBox MB_OK|MB_ICONSTOP "需要 .NET Framework 4.5 或更新版本。" /SD IDOK
+    SetErrorLevel 2
     Abort
   ${EndIf}
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "${PAYLOAD_DIR}\InstallerGuard.exe"
+FunctionEnd
+
+Function un.onInit
+  SetShellVarContext current
+  InitPluginsDir
+  SetOutPath "$PLUGINSDIR"
+  File "${PAYLOAD_DIR}\InstallerGuard.exe"
+FunctionEnd
+
+Function .onVerifyInstDir
+  StrCpy $0 '--check-install "$INSTDIR"'
+  Call Guard
+  StrCmp $1 "0" valid
+  Abort
+  valid:
 FunctionEnd
 
 Section "旅店排名"
-  IfFileExists "$INSTDIR\HearthstoneRank.exe" 0 +3
-    ExecWait '"$INSTDIR\HearthstoneRank.exe" --shutdown'
-    Sleep 800
+  StrCpy $0 '--check-install "$INSTDIR"'
+  Call Guard
+  StrCmp $1 "0" safe
+    DetailPrint "安装目录校验失败：$2"
+    MessageBox MB_OK|MB_ICONSTOP "安装目录不安全或不属于本程序。$\r$\n$2" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  safe:
+  StrCpy $0 '--shutdown'
+  Call Guard
+  StrCmp $1 "0" stopped
+    DetailPrint "无法安全通知旧程序退出：$2"
+    SetErrorLevel 2
+    Abort
+  stopped:
+  Sleep 500
+  ClearErrors
   SetOutPath "$INSTDIR"
-  File "dist\HearthstoneRank.exe"
-  File "dist\HearthstoneRank.exe.config"
-  File "dist\LICENSE.txt"
-  File "dist\HearthstoneRank-README.md"
+  File "${PAYLOAD_DIR}\HearthstoneRank.exe"
+  File "${PAYLOAD_DIR}\HearthstoneRank.exe.config"
+  File "${PAYLOAD_DIR}\LICENSE.txt"
+  File "${PAYLOAD_DIR}\HearthstoneRank-README.md"
+  IfErrors install_failed
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+  IfErrors install_failed
+  FileOpen $0 "$INSTDIR\HearthstoneRank.install" w
+  IfErrors install_failed
+  FileWrite $0 "HearthstoneRank-managed-directory-v1"
+  FileClose $0
+  IfErrors install_failed
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayName" "旅店排名"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayVersion" "1.0.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "DisplayIcon" "$INSTDIR\HearthstoneRank.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank" "NoRepair" 1
+  IfErrors install_failed
   CreateDirectory "$SMPROGRAMS\旅店排名"
   CreateShortcut "$SMPROGRAMS\旅店排名\旅店排名.lnk" "$INSTDIR\HearthstoneRank.exe"
   CreateShortcut "$SMPROGRAMS\旅店排名\设置.lnk" "$INSTDIR\HearthstoneRank.exe" "--settings"
   CreateShortcut "$SMPROGRAMS\旅店排名\卸载.lnk" "$INSTDIR\Uninstall.exe"
+  IfErrors install_failed
+  Goto install_done
+  install_failed:
+    DetailPrint "安装未完成；旧卸载记录不会被提前移除。"
+    SetErrorLevel 2
+    Abort
+  install_done:
 SectionEnd
 
 Section "Uninstall"
-  SetShellVarContext current
-  ExecWait '"$INSTDIR\HearthstoneRank.exe" --shutdown'
-  Sleep 800
-  Delete "$INSTDIR\HearthstoneRank.exe"
-  Delete "$INSTDIR\HearthstoneRank.exe.config"
-  Delete "$INSTDIR\LICENSE.txt"
-  Delete "$INSTDIR\HearthstoneRank-README.md"
-  Delete "$INSTDIR\Uninstall.exe"
-  RMDir "$INSTDIR"
+  StrCpy $0 '--check-uninstall "$INSTDIR"'
+  Call un.Guard
+  StrCmp $1 "0" safe
+    DetailPrint "卸载目录校验失败：$2"
+    MessageBox MB_OK|MB_ICONSTOP "此位置不属于已注册的旅店排名，已停止卸载。$\r$\n$2" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  safe:
+  StrCpy $0 '--shutdown'
+  Call un.Guard
+  StrCmp $1 "0" stopped
+    SetErrorLevel 2
+    Abort
+  stopped:
+  Sleep 500
+  ClearErrors
+  !insertmacro DeletePayload "HearthstoneRank.exe"
+  !insertmacro DeletePayload "HearthstoneRank.exe.config"
+  !insertmacro DeletePayload "LICENSE.txt"
+  !insertmacro DeletePayload "HearthstoneRank-README.md"
+  ; A locked payload keeps its uninstaller, marker and registration available.
+  Delete "$INSTDIR\HearthstoneRank.install"
+  IfErrors uninstall_failed
   Delete "$SMPROGRAMS\旅店排名\旅店排名.lnk"
   Delete "$SMPROGRAMS\旅店排名\设置.lnk"
   Delete "$SMPROGRAMS\旅店排名\卸载.lnk"
   RMDir "$SMPROGRAMS\旅店排名"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HearthstoneRank"
-  ; Keep the user's settings. Never recursively delete the install directory.
+  Delete "$INSTDIR\Uninstall.exe"
+  RMDir "$INSTDIR"
+  Goto uninstall_done
+  uninstall_failed:
+    DetailPrint "文件仍被占用或不能删除；保留卸载入口，请关闭程序后重试。"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "部分文件不能删除。卸载入口已保留，请关闭程序后重试。" /SD IDOK
+    SetErrorLevel 2
+    Abort
+  uninstall_done:
 SectionEnd

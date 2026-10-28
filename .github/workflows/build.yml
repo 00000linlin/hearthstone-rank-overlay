@@ -9,14 +9,17 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build and test
         shell: pwsh
         run: |
           $existing = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
           if (!$existing) { ./tools/Get-Nsis.ps1 }
           ./build.ps1 -Test -Installer
-      - uses: actions/upload-artifact@v4
+      - name: Distribution security regression tests
+        shell: pwsh
+        run: ./tests/DistributionTests.ps1 -Integration
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: HearthstoneRank-windows
           path: |

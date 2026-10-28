@@ -3,37 +3,67 @@ $ErrorActionPreference = 'Stop'
 $hsRoot = $PSScriptRoot
 $hsBuild = Join-Path $hsRoot 'build'
 $hsDist = Join-Path $hsRoot 'dist'
+$hsVersion = (Get-Content -Raw -LiteralPath (Join-Path $hsRoot 'version.txt')).Trim()
+if ($hsVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'version.txt 必须为 major.minor.patch。' }
 $hsCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (!(Test-Path -LiteralPath $hsCompiler)) { throw '需要 Windows .NET Framework 4.5 或更新版本的 C# 编译器。' }
 New-Item -ItemType Directory -Path $hsBuild,$hsDist -Force | Out-Null
+$hsStage = Join-Path $hsBuild ('stage-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $hsStage | Out-Null
 $hsReferences = @('/r:System.Core.dll','/r:System.Drawing.dll','/r:System.Windows.Forms.dll','/r:System.Runtime.Serialization.dll')
 $hsSources = @((Join-Path $hsRoot 'src\Core.cs'), (Join-Path $hsRoot 'src\App.cs'))
 $hsCommon = @('/nologo','/optimize+','/platform:anycpu','/utf8output') + $hsReferences
-& $hsCompiler @hsCommon /target:exe /main:HearthstoneRank.IconBuilder "/out:$hsBuild\IconBuilder.exe" @hsSources (Join-Path $hsRoot 'tools\IconBuilder.cs')
-if ($LASTEXITCODE -ne 0) { throw '图标工具编译失败。' }
-& "$hsBuild\IconBuilder.exe" "$hsBuild\app.ico"
-if ($LASTEXITCODE -ne 0) { throw '图标生成失败。' }
-& $hsCompiler @hsCommon /target:winexe "/out:$hsDist\HearthstoneRank.exe" "/win32icon:$hsBuild\app.ico" "/win32manifest:$hsRoot\src\app.manifest" @hsSources
-if ($LASTEXITCODE -ne 0) { throw '应用编译失败。' }
-Copy-Item -LiteralPath "$hsRoot\src\app.config" -Destination "$hsDist\HearthstoneRank.exe.config"
-Copy-Item -LiteralPath "$hsRoot\LICENSE" -Destination "$hsDist\LICENSE.txt"
-Copy-Item -LiteralPath "$hsRoot\README.md" -Destination "$hsDist\HearthstoneRank-README.md"
-if ($Test) {
-    & $hsCompiler @hsCommon /target:exe "/out:$hsBuild\CoreTests.exe" (Join-Path $hsRoot 'src\Core.cs') (Join-Path $hsRoot 'tests\CoreTests.cs')
-    if ($LASTEXITCODE -ne 0) { throw '测试编译失败。' }
-    & "$hsBuild\CoreTests.exe"
-    if ($LASTEXITCODE -ne 0) { throw '核心测试失败。' }
-}
-Compress-Archive -LiteralPath "$hsDist\HearthstoneRank.exe","$hsDist\HearthstoneRank.exe.config","$hsDist\LICENSE.txt","$hsDist\HearthstoneRank-README.md" -DestinationPath "$hsDist\HearthstoneRank-1.0.0-portable.zip" -Force
-if ($Installer) {
-    if (!$NsisPath) {
-        $hsNsisCandidates = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe", "$hsBuild\nsis-3.12\makensis.exe")
-        $NsisPath = $hsNsisCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+try {
+    $hsVersionSource = Join-Path $hsStage 'Version.Generated.cs'
+    @("[assembly: System.Reflection.AssemblyVersion(`"$hsVersion.0`")]", "[assembly: System.Reflection.AssemblyFileVersion(`"$hsVersion.0`")]") | Set-Content -LiteralPath $hsVersionSource -Encoding utf8
+    $hsSources += $hsVersionSource
+    & $hsCompiler @hsCommon /target:exe /main:HearthstoneRank.IconBuilder "/out:$hsStage\IconBuilder.exe" @hsSources (Join-Path $hsRoot 'tools\IconBuilder.cs')
+    if ($LASTEXITCODE -ne 0) { throw '图标工具编译失败。' }
+    & "$hsStage\IconBuilder.exe" "$hsStage\app.ico"
+    if ($LASTEXITCODE -ne 0) { throw '图标生成失败。' }
+    & $hsCompiler @hsCommon /target:winexe "/out:$hsStage\HearthstoneRank.exe" "/win32icon:$hsStage\app.ico" "/win32manifest:$hsRoot\src\app.manifest" @hsSources
+    if ($LASTEXITCODE -ne 0) { throw '应用编译失败。' }
+    & $hsCompiler /nologo /optimize+ /target:exe /r:System.Core.dll "/out:$hsStage\InstallerGuard.exe" (Join-Path $hsRoot 'tools\InstallerGuard.cs')
+    if ($LASTEXITCODE -ne 0) { throw '安装保护工具编译失败。' }
+    Copy-Item -LiteralPath "$hsRoot\src\app.config" -Destination "$hsStage\HearthstoneRank.exe.config"
+    Copy-Item -LiteralPath "$hsRoot\LICENSE" -Destination "$hsStage\LICENSE.txt"
+    $hsReadme = Get-Content -Raw -LiteralPath "$hsRoot\README.md" -Encoding utf8
+    $hsReadme = $hsReadme.Replace('(LICENSE)', '(LICENSE.txt)').Replace('(docs/validation.md)', '(https://github.com/00000linlin/hearthstone-rank-overlay/blob/main/docs/validation.md)')
+    Set-Content -LiteralPath "$hsStage\HearthstoneRank-README.md" -Value $hsReadme -Encoding utf8
+    if ($Test) {
+        & $hsCompiler @hsCommon /target:exe "/out:$hsStage\CoreTests.exe" (Join-Path $hsRoot 'src\Core.cs') (Join-Path $hsRoot 'tests\CoreTests.cs')
+        if ($LASTEXITCODE -ne 0) { throw '测试编译失败。' }
+        & "$hsStage\CoreTests.exe"
+        if ($LASTEXITCODE -ne 0) { throw '核心测试失败。' }
+        Copy-Item -LiteralPath "$hsStage\CoreTests.exe" -Destination "$hsBuild\CoreTests.exe"
     }
-    if (!$NsisPath) { throw '请先运行 tools\Get-Nsis.ps1，或通过 -NsisPath 指定 makensis.exe。' }
-    & $NsisPath /V2 "$hsRoot\installer.nsi"
-    if ($LASTEXITCODE -ne 0) { throw '安装包构建失败。' }
+    $hsPayload = @('HearthstoneRank.exe','HearthstoneRank.exe.config','LICENSE.txt','HearthstoneRank-README.md')
+    $hsZipName = "HearthstoneRank-$hsVersion-portable.zip"
+    $hsSetupName = "HearthstoneRank-$hsVersion-Setup.exe"
+    $hsOutputs = @($hsZipName)
+    Compress-Archive -LiteralPath ($hsPayload | ForEach-Object { Join-Path $hsStage $_ }) -DestinationPath (Join-Path $hsStage $hsZipName)
+    if ($Installer) {
+        if (!$NsisPath) {
+            $hsNsisCandidates = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe", "$hsBuild\nsis-3.12\makensis.exe")
+            $NsisPath = $hsNsisCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        }
+        if (!$NsisPath) { throw '请先运行 tools\Get-Nsis.ps1，或通过 -NsisPath 指定 makensis.exe。' }
+        & $NsisPath /V2 "/DVERSION=$hsVersion" "/DPAYLOAD_DIR=$hsStage" "/DOUT_FILE=$hsStage\$hsSetupName" "$hsRoot\installer.nsi"
+        if ($LASTEXITCODE -ne 0) { throw '安装包构建失败。' }
+        $hsOutputs += $hsSetupName
+    }
+    # Only artifacts generated by this invocation belong in its release manifest.
+    foreach ($hsFile in ($hsPayload + $hsOutputs)) { Copy-Item -LiteralPath (Join-Path $hsStage $hsFile) -Destination (Join-Path $hsDist $hsFile) -Force }
+    $hsOutputs | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $hsDist $_) -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_ } | Set-Content -LiteralPath "$hsDist\SHA256SUMS.txt" -Encoding ascii
+    $hsOutputs | ForEach-Object { Get-Item -LiteralPath (Join-Path $hsDist $_) } | Select-Object Name,Length
+} finally {
+    $hsFullStage = [IO.Path]::GetFullPath($hsStage)
+    $hsExpectedParent = [IO.Path]::GetFullPath($hsBuild).TrimEnd('\') + '\'
+    if (!$hsFullStage.StartsWith($hsExpectedParent, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($hsFullStage) -notmatch '^stage-[0-9a-f]{32}$') { throw '拒绝清理意外的 staging 路径。' }
+    if (Test-Path -LiteralPath $hsFullStage) {
+        $hsStageEntries = @(Get-ChildItem -LiteralPath $hsFullStage -Force)
+        if ($hsStageEntries | Where-Object { $_.PSIsContainer -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }) { throw 'staging 中出现意外目录或链接，停止自动清理。' }
+        foreach ($hsEntry in $hsStageEntries) { Remove-Item -LiteralPath $hsEntry.FullName -Force }
+        Remove-Item -LiteralPath $hsFullStage
+    }
 }
-$hsReleaseFiles = Get-ChildItem -LiteralPath $hsDist -File | Where-Object { $_.Name -eq 'HearthstoneRank-1.0.0-Setup.exe' -or $_.Extension -eq '.zip' }
-$hsReleaseFiles | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name } | Set-Content -LiteralPath "$hsDist\SHA256SUMS.txt" -Encoding ascii
-Get-ChildItem -LiteralPath $hsDist -File | Select-Object Name,Length

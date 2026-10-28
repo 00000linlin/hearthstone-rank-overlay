@@ -14,8 +14,6 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("旅店排名")]
 [assembly: System.Reflection.AssemblyDescription("炉石传说官方榜单桌面悬浮窗")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
 
 namespace HearthstoneRank
 {

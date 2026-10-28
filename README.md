@@ -8,7 +8,7 @@
 
 ## 使用
 
-下载 Release 中的 `HearthstoneRank-1.0.0-Setup.exe` 并安装，或解压便携包后运行 `HearthstoneRank.exe`。首次运行会打开设置，填入玩家名称、服务器和模式，点击“保存并应用”。
+下载 Release 中的 `HearthstoneRank-<版本>-Setup.exe` 并安装，或解压便携包后运行 `HearthstoneRank.exe`。首次运行会打开设置，填入玩家名称、服务器和模式，点击“保存并应用”。
 
 程序需要 Windows 10 / 11 和 .NET Framework 4.5 或更新版本。Windows 10 / 11 自带兼容的 .NET Framework；不需要 Python、.NET SDK 或浏览器运行时。
 
@@ -57,6 +57,8 @@
 
 设置保存在 `%LOCALAPPDATA%\HearthstoneRank\settings.json`，与程序目录分开。卸载后保留设置，便于重装；需要清除时可自行删除此文件。
 
+1.0.1 起，安装器仅使用包内 helper 通知程序退出，不执行安装目录已有的 EXE。目标目录须为空或属于已安装的旅店排名，路径和托管文件不能是联接、符号链接或硬链接；文件被占用而无法卸载时会保留卸载入口，便于重试。
+
 ## 从源码构建
 
 在 Windows PowerShell 或 PowerShell 7 中执行：
@@ -66,6 +68,8 @@
 ```
 
 构建使用 Windows 自带 .NET Framework C# 编译器，不需要 NuGet。生成应用、便携 ZIP 和校验文件，输出到 `dist`。
+
+版本号统一读取 `version.txt`。每次构建使用独立 staging，校验清单只包含本次实际生成的包；未请求安装包时，不会把上一次的旧 Setup 或其他 ZIP 算入本轮结果。
 
 安装包使用 NSIS 3.12。若未安装 NSIS，可下载经过 SHA-256 校验的官方便携工具，仅用于构建：
 
